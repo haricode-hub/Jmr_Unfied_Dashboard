@@ -2,9 +2,17 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-    const urls = [
-        "http://192.168.3.245:8002/customer-service/api/v1/customers/pending"
-    ]
+    const apiUrl = process.env.CUSTOMER_SERVICE_API_URL;
+
+    if (!apiUrl) {
+        console.error("CUSTOMER_SERVICE_API_URL is not defined in environment variables");
+        return NextResponse.json(
+            { error: "Server configuration error" },
+            { status: 500 }
+        );
+    }
+
+    const urls = [apiUrl];
 
     let data = null;
     const errors: string[] = [];
