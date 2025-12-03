@@ -91,10 +91,11 @@ export default function TestCockpit() {
         }).format(amount);
     };
 
-    const handleApprove = async () => {
-        if (!selectedTxn) return;
+    const handleApprove = async (txnId?: string) => {
+        const targetTxnId = txnId || selectedTxn;
+        if (!targetTxnId) return;
 
-        const txn = approvals.find(a => a.txnId === selectedTxn);
+        const txn = approvals.find(a => a.txnId === targetTxnId);
         if (!txn) return;
 
         // Use brn/acc if available, otherwise fallback to branch/accountNumber or defaults
@@ -368,7 +369,14 @@ export default function TestCockpit() {
                                             </td>
                                             <td>
                                                 <div className="flex items-center justify-center gap-3">
-                                                    <button className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors border border-green-100">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleApprove(row.txnId);
+                                                        }}
+                                                        className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors border border-green-100"
+                                                        title="Approve"
+                                                    >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
                                                         </svg>
@@ -438,9 +446,9 @@ export default function TestCockpit() {
                         {/* Transaction Details */}
                         <div className="dashboard-card p-6 animate-slide-in bg-white shadow-lg">
                             <div className="border-b border-gray-100 pb-4 mb-5">
-                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wide mb-1">Transaction Details</h3>
+                                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wide mb-1">Account no</h3>
                                 <div className="flex items-center justify-between">
-                                    <p className="text-lg font-mono font-bold text-blue-600">#{selectedTxn || '---'}</p>
+                                    <p className="text-lg font-mono font-bold text-blue-600">{selectedTxn || '---'}</p>
                                     <span className="badge badge-status text-[10px] px-2 py-0.5">Pending</span>
                                 </div>
                             </div>
@@ -468,7 +476,7 @@ export default function TestCockpit() {
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         id="approve-btn"
-                                        onClick={handleApprove}
+                                        onClick={() => handleApprove()}
                                         className="col-span-2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wide disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
