@@ -33,6 +33,10 @@ export async function GET() {
 
             if (res.ok) {
                 data = await res.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    console.log("First record keys:", Object.keys(data[0]));
+                    console.log("First record sample:", JSON.stringify(data[0]).substring(0, 200));
+                }
                 break; // Success, exit loop
             } else {
                 const msg = `Failed to fetch from ${url}: ${res.status} ${res.statusText}`;
@@ -63,16 +67,19 @@ export async function GET() {
         const formatted = data.map((c: any) => ({
             sourceSystem: "FCUBS",                          // placeholder
             module: "CUSTOMER",                             // placeholder
-            txnId: c.CUSTOMER_NO || "N/A",                  // use customer ID as txn
-            accountNumber: c.CUSTOMER_NO || "N/A",          // Map Customer No to Account No as requested
-            customerName: c.CUSTOMER_NAME1 || "Unknown",
+            txnId: c.CUST_AC_NO || "N/A",                  // use customer ID as txn
+            accountNumber: c.CUST_AC_NO || "N/A",          // Map Customer No to Account No as requested
+            customerName: c.AC_DESC || "Unknown",
             amount: 0,                                      // placeholder
-            branch: c.LOCAL_BRANCH || "000",
+            branch: c.BRANCH_CODE || "",
             status: c.AUTH_STAT || "U",
             ageMinutes: 5,                                  // placeholder
             priority: "Normal",                             // placeholder
             initiator: c.MAKER_ID || "SYSTEM",
-            timestamp: c.MAKER_DT_STAMP || new Date().toISOString()
+            timestamp: c.MAKER_DT_STAMP || new Date().toISOString(),
+            // Restore brn/acc with robust mapping to ensure approval workflow has correct data
+            brn: c.BRANCH_CODE || c.LOCAL_BRANCH || c.BR || c.branch || c.ST_BRANCH || c.BRANCH || c.COD_BRANCH || c.BRN || "000",
+            acc: c.CUST_AC_NO || c.CUSTOMER_NO || c.acc || "N/A"
         }));
 
         return NextResponse.json(formatted);

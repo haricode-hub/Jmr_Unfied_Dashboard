@@ -15,6 +15,8 @@ interface Approval {
     priority: string;
     initiator: string;
     timestamp: string;
+    brn?: string;
+    acc?: string;
 }
 
 export default function TestCockpit() {
@@ -87,6 +89,51 @@ export default function TestCockpit() {
             currency: 'USD',
             minimumFractionDigits: 2
         }).format(amount);
+    };
+
+    const handleApprove = async () => {
+        if (!selectedTxn) return;
+
+        const txn = approvals.find(a => a.txnId === selectedTxn);
+        if (!txn) return;
+
+        // Use brn/acc if available, otherwise fallback to branch/accountNumber or defaults
+        const brn = txn.brn || txn.branch || "000";
+        const acc = txn.acc || txn.accountNumber;
+
+        if (!acc) {
+            alert("Account number missing");
+            return;
+        }
+
+        const originalText = document.getElementById('approve-btn-text')?.innerText;
+        const btn = document.getElementById('approve-btn');
+        if (btn) btn.setAttribute('disabled', 'true');
+        if (originalText) document.getElementById('approve-btn-text')!.innerText = "Processing...";
+
+        try {
+            const res = await fetch('/api/test/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ brn, acc })
+            });
+
+            const result = await res.json();
+
+            if (res.ok && result.success) {
+                alert("Approval Successful!");
+                loadApprovals();
+            } else {
+                alert(`Approval Failed: ${result.error || "Unknown error"}`);
+                if (result.details) console.error(result.details);
+            }
+        } catch (error) {
+            console.error("Approval error:", error);
+            alert("An error occurred during approval.");
+        } finally {
+            if (btn) btn.removeAttribute('disabled');
+            if (originalText) document.getElementById('approve-btn-text')!.innerText = "Approve";
+        }
     };
 
 
@@ -419,11 +466,15 @@ export default function TestCockpit() {
 
                             <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button className="col-span-2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wide">
+                                    <button
+                                        id="approve-btn"
+                                        onClick={handleApprove}
+                                        className="col-span-2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wide disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
-                                        Approve
+                                        <span id="approve-btn-text">Approve</span>
                                     </button>
                                     <button className="bg-white border border-gray-300 text-slate-600 hover:bg-gray-50 hover:text-slate-800 font-semibold py-2.5 rounded-lg shadow-sm transition-colors text-xs uppercase tracking-wide">
                                         Reject
@@ -440,6 +491,14 @@ export default function TestCockpit() {
                                         placeholder="Enter your remarks here..."
                                     ></textarea>
                                     <div className="absolute bottom-2 right-2 w-2.5 h-2.5 border-r-2 border-b-2 border-gray-300 cursor-se-resize"></div>
+                                </div>
+
+                                {/* Debug Section */}
+                                <div className="mt-4 p-3 bg-gray-100 rounded-lg border border-gray-200">
+                                    <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Debug Data (Raw)</h4>
+                                    <pre className="text-[10px] text-slate-600 overflow-x-auto whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">
+                                        {selectedTxn && JSON.stringify(approvals.find(a => a.txnId === selectedTxn), null, 2)}
+                                    </pre>
                                 </div>
                             </div>
                         </div>
