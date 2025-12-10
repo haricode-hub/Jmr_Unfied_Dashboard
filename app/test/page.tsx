@@ -24,6 +24,10 @@ export default function TestCockpit() {
     const [loading, setLoading] = useState(true);
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
     const [selectedTxn, setSelectedTxn] = useState<string | null>(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [detailsData, setDetailsData] = useState<any>(null);
+    const [loadingDetails, setLoadingDetails] = useState(false);
+    const [showAllFields, setShowAllFields] = useState(false);
 
     // Derived state for charts
     const systemCounts = approvals.reduce((acc, curr) => {
@@ -131,12 +135,177 @@ export default function TestCockpit() {
         } catch (error) {
             console.error("Approval error:", error);
             alert("An error occurred during approval.");
+            setDetailsData({ error: "An error occurred while fetching details." });
         } finally {
-            if (btn) btn.removeAttribute('disabled');
-            if (originalText) document.getElementById('approve-btn-text')!.innerText = "Approve";
+            setLoadingDetails(false);
         }
     };
 
+    // Recursive helper to find all change logs in the nested JSON
+    // Universal helper to flatten the entire object into a single list of readable attributes
+    // Universal helper to flatten the entire object into a single list of readable attributes
+    // This ensures NO field is missed (Universal Approach)
+    // Universal helper to flatten the entire object into a single list of readable attributes
+    const flattenData = (obj: any, prefix: string = '', result: { key: string, value: any, isChange: boolean }[] = []) => {
+        if (!obj) return result;
+
+        // Helper to check if a key indicates a change (for highlighting) or is Significant Data
+        const isChangeKey = (fullKey: string, leafKey: string) => {
+            const lowerFull = fullKey.toLowerCase();
+            const lowerLeaf = leafKey.toLowerCase();
+
+            // 1. Path-based Change Detection (e.g. inside "ChangeLog", "Audit", "History" arrays)
+            if (['changelog', 'audit', 'history', 'diff', 'modification', 'mod_details'].some(k => lowerFull.includes(k))) {
+                return true;
+            }
+
+            // 2. Regex Patterns on Leaf Key (Standard Change Prefixes/Suffixes)
+            if (/^(nw|old|new|prev|curr|chg|mod|upd)/i.test(leafKey) || /(_new|_old|_prev|_curr|_chg|_mod|_upd)$/i.test(leafKey)) {
+                return true;
+            }
+
+            // 3. Strict Whitelist of Critical Profile Fields (Relevant Data)
+            // Capture high-impact fields that justify being shown even without explicit change markers.
+            const CRITICAL_FIELDS = [
+                // Identity
+                'acc', 'custno', 'custname', 'adesc', 'acdesc', 'brn', 'branch',
+                // Contact / Address
+                'address', 'pincode', 'zip', 'mobile', 'phone', 'email', 'contact', 'city', 'country',
+                // Status / State
+                'dormant', 'frozen', 'status', 'stat', 'auth', 'active', 'close',
+                // Financials
+                'bal', 'balance', 'amt', 'amount', 'ccy', 'currency', 'limit', 'overdraft',
+                // Class / Type
+                'class', 'type', 'prod', 'product',
+                // Dates
+                'date', 'dt', 'since'
+            ];
+
+            return CRITICAL_FIELDS.some(field => lowerLeaf.includes(field));
+        };
+
+        if (Array.isArray(obj)) {
+            obj.forEach((item, index) => {
+                if (typeof item !== 'object') {
+                    const key = `${prefix} [${index + 1}]`;
+                    // For simple array items, use the generated key for both checks
+                    result.push({
+                        key: key,
+                        value: item,
+                        isChange: isChangeKey(key, key)
+                    });
+                } else {
+                    flattenData(item, `${prefix} #${index + 1}`, result);
+                }
+            });
+        } else if (typeof obj === 'object') {
+            Object.keys(obj).forEach(key => {
+                const value = obj[key];
+                if (value === null || value === undefined) return; // Skip null/undefined
+                if (typeof value === 'object' && Object.keys(value).length === 0) return; // Skip empty objects
+
+                const label = prefix ? `${prefix} - ${key}` : key;
+
+                if (value && typeof value === 'object') {
+                    flattenData(value, label, result);
+                } else {
+                    result.push({
+                        key: label,
+                        value: value,
+                        isChange: isChangeKey(label, key)
+                    });
+                }
+            });
+        }
+
+        return result;
+    };
+
+    const handleViewDetails = async (txnId?: string) => {
+        const targetTxnId = txnId || selectedTxn;
+        if (!targetTxnId) return;
+
+        const txn = approvals.find(a => a.txnId === targetTxnId);
+        if (!txn) return;
+
+        const brn = txn.brn || txn.branch || "000";
+        const acc = txn.acc || txn.accountNumber;
+
+        setLoadingDetails(true);
+        setShowDetailsModal(true);
+        setDetailsData(null);
+        setShowAllFields(false); // Reset toggle on new view
+
+        try {
+            const res = await fetch('/api/test/details', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ brn, acc })
+            });
+
+            const result = await res.json();
+
+            if (res.ok && result.success) {
+                const data = result.data.custaccount || result.data;
+
+                // Flatten EVERYTHING
+                const flatList = flattenData(data);
+
+                // Sort Alphabetical
+                flatList.sort((a, b) => a.key.localeCompare(b.key));
+
+                setDetailsData(flatList); // Store ALL data
+            } else {
+                setDetailsData({ error: result.error || "Failed to fetch details", details: result.details });
+            }
+        } catch (error) {
+            console.error("Details error:", error);
+            setDetailsData({ error: "An error occurred while fetching details." });
+        } finally {
+            setLoadingDetails(false);
+        }
+    };
+
+    const getLabel = (key: string) => {
+        let parts = key.split(' - ');
+
+        const processPart = (text: string) => {
+            const cleanText = text.replace(/ #\d+/, '');
+            const indexPart = text.match(/ #\d+/)?.[0] || '';
+
+            const ABBREVIATIONS: { [key: string]: string } = {
+                'nw': 'New', 'old': 'Old', 'bg': 'BG', 'lc': 'LC', 'ft': 'Transfer',
+                'dt': 'Date', 'cd': 'Code', 'no': 'No', 'amt': 'Amount', 'ccy': 'Currency',
+                'stat': 'Status', 'cls': 'Class', 'desc': 'Description', 'txn': 'Txn',
+                'brn': 'Branch', 'acc': 'Account', 'cust': 'Customer', 'mod': 'Mod',
+                'auth': 'Auth', 'mis': 'MIS', 'id': 'ID', 'ref': 'Ref', 'cat': 'Category',
+                'pin': 'Pincode', 'zip': 'Zipcode', 'bal': 'Balance', 'lim': 'Limit',
+                'prod': 'Product', 'val': 'Value', 'curr': 'Current', 'lat': 'Latitude',
+                'lon': 'Longitude', 'org': 'Original'
+            };
+
+            let words = cleanText.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim().split(/\s+/);
+            words = words.map(w => {
+                const lw = w.toLowerCase();
+                if (ABBREVIATIONS[lw]) return ABBREVIATIONS[lw];
+                return w.charAt(0).toUpperCase() + w.slice(1);
+            });
+            return words.join(' ') + indexPart;
+        };
+
+        return parts.map(processPart).join(' › ');
+    };
+
+    // Filter Logic for Render
+    const getVisibleDetails = () => {
+        if (!detailsData || !Array.isArray(detailsData)) return [];
+        // If toggle ON -> Show ALL
+        if (showAllFields) return detailsData;
+
+        // If toggle OFF -> Show only "Relevant" fields (Critical + Changes)
+        // isChange is calculated based on Critical whitelist OR change detection keywords
+        return detailsData.filter((item: any) => item.isChange);
+    };
 
 
     return (
@@ -386,7 +555,14 @@ export default function TestCockpit() {
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
                                                         </svg>
                                                     </button>
-                                                    <button className="w-8 h-8 rounded-full bg-gray-50 text-gray-600 flex items-center justify-center hover:bg-gray-100 transition-colors border border-gray-200">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleViewDetails(row.txnId);
+                                                        }}
+                                                        className="w-8 h-8 rounded-full bg-gray-50 text-gray-600 flex items-center justify-center hover:bg-gray-100 transition-colors border border-gray-200"
+                                                        title="View Details"
+                                                    >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -513,6 +689,92 @@ export default function TestCockpit() {
                     </div>
                 </div>
             </main>
-        </div>
+            {/* Details Modal */}
+            {showDetailsModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in-up border border-gray-100">
+                        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-xl">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">Transaction Changes</h3>
+                                <p className="text-xs text-slate-500">Review modifications before approval</p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2 mr-2">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Show All Fields</span>
+                                    <div
+                                        onClick={() => setShowAllFields(!showAllFields)}
+                                        className={`w-10 h-5 flex items-center bg-gray-300 rounded-full p-1 cursor-pointer transition-colors duration-300 ${showAllFields ? 'bg-blue-600' : ''}`}
+                                    >
+                                        <div className={`bg-white w-3 h-3 rounded-full shadow-md transform transition-transform duration-300 ${showAllFields ? 'translate-x-5' : ''}`}></div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setShowDetailsModal(false)}
+                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1 bg-white">
+                            {loadingDetails ? (
+                                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                    <span className="text-sm text-slate-500 font-medium">Loading details...</span>
+                                </div>
+                            ) : getVisibleDetails().length > 0 ? (
+                                /* Consolidated Flat View */
+                                <div className="bg-slate-50 rounded-lg border border-slate-100 overflow-hidden">
+                                    <div className="bg-slate-100/80 px-4 py-2 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                                        Account Details & Changes
+                                    </div>
+                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4">
+                                        {getVisibleDetails().map((item: any, idx: number) => (
+                                            <div key={idx} className={`flex flex-col border-b border-slate-100 pb-2 last:border-0 ${item.isChange ? 'bg-blue-50/30 -mx-2 px-2 rounded' : ''}`}>
+                                                <span className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${item.isChange ? 'text-blue-700' : 'text-slate-400'}`}>
+                                                    {getLabel(item.key)}
+                                                </span>
+                                                <span className={`text-sm font-medium break-all ${item.isChange ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
+                                                    {String(item.value)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-10 text-slate-500">
+                                    No details available
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t border-gray-100 flex justify-end bg-gray-50/50 rounded-b-xl gap-3">
+                            <button
+                                onClick={() => setShowDetailsModal(false)}
+                                className="px-5 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-slate-700 rounded-lg font-bold text-sm transition-all shadow-sm"
+                            >
+                                Close
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowDetailsModal(false);
+                                    handleApprove();
+                                }}
+                                className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-sm transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                                </svg>
+                                Approve Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )
+            }
+        </div >
     );
 }
