@@ -164,24 +164,7 @@ export default function TestCockpit() {
                 return true;
             }
 
-            // 3. Strict Whitelist of Critical Profile Fields (Relevant Data)
-            // Capture high-impact fields that justify being shown even without explicit change markers.
-            const CRITICAL_FIELDS = [
-                // Identity
-                'acc', 'custno', 'custname', 'adesc', 'acdesc', 'brn', 'branch',
-                // Contact / Address
-                'address', 'pincode', 'zip', 'mobile', 'phone', 'email', 'contact', 'city', 'country',
-                // Status / State
-                'dormant', 'frozen', 'status', 'stat', 'auth', 'active', 'close',
-                // Financials
-                'bal', 'balance', 'amt', 'amount', 'ccy', 'currency', 'limit', 'overdraft',
-                // Class / Type
-                'class', 'type', 'prod', 'product',
-                // Dates
-                'date', 'dt', 'since'
-            ];
-
-            return CRITICAL_FIELDS.some(field => lowerLeaf.includes(field));
+            return false;
         };
 
         if (Array.isArray(obj)) {
@@ -266,8 +249,11 @@ export default function TestCockpit() {
         }
     };
 
-    const getLabel = (key: string) => {
+    const getLabel = (key: string, onlyLeaf: boolean = false) => {
         let parts = key.split(' - ');
+        if (onlyLeaf) {
+            parts = [parts[parts.length - 1]];
+        }
 
         const processPart = (text: string) => {
             const cleanText = text.replace(/ #\d+/, '');
@@ -299,12 +285,31 @@ export default function TestCockpit() {
     // Filter Logic for Render
     const getVisibleDetails = () => {
         if (!detailsData || !Array.isArray(detailsData)) return [];
-        // If toggle ON -> Show ALL
+        // If toggle ON -> Show ALL (Raw Paths)
         if (showAllFields) return detailsData;
 
-        // If toggle OFF -> Show only "Relevant" fields (Critical + Changes)
-        // isChange is calculated based on Critical whitelist OR change detection keywords
-        return detailsData.filter((item: any) => item.isChange);
+        // If toggle OFF -> Deduplicated "Clean" View
+        // 1. Calculate simplified label (Leaf Name)
+        // 2. Deduplicate based on (Simplified Label + Value)
+
+        const seen = new Set<string>();
+        const uniqueItems: any[] = [];
+
+        detailsData.forEach((item: any) => {
+            const shortLabel = getLabel(item.key, true);
+            // Create a unique signature for the field
+            const signature = `${shortLabel.toLowerCase()}||${String(item.value).toLowerCase()}`;
+
+            if (!seen.has(signature)) {
+                seen.add(signature);
+                uniqueItems.push({
+                    ...item,
+                    customLabel: shortLabel // Attach the simplified label for display
+                });
+            }
+        });
+
+        return uniqueItems;
     };
 
 
@@ -538,23 +543,7 @@ export default function TestCockpit() {
                                             </td>
                                             <td>
                                                 <div className="flex items-center justify-center gap-3">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleApprove(row.txnId);
-                                                        }}
-                                                        className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center hover:bg-green-100 transition-colors border border-green-100"
-                                                        title="Approve"
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
-                                                        </svg>
-                                                    </button>
-                                                    <button className="w-8 h-8 rounded-full bg-red-50 text-red-600 flex items-center justify-center hover:bg-red-100 transition-colors border border-red-100">
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-                                                        </svg>
-                                                    </button>
+
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -735,7 +724,7 @@ export default function TestCockpit() {
                                         {getVisibleDetails().map((item: any, idx: number) => (
                                             <div key={idx} className={`flex flex-col border-b border-slate-100 pb-2 last:border-0 ${item.isChange ? 'bg-blue-50/30 -mx-2 px-2 rounded' : ''}`}>
                                                 <span className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${item.isChange ? 'text-blue-700' : 'text-slate-400'}`}>
-                                                    {getLabel(item.key)}
+                                                    {item.customLabel || getLabel(item.key)}
                                                 </span>
                                                 <span className={`text-sm font-medium break-all ${item.isChange ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>
                                                     {String(item.value)}
