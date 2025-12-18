@@ -33,6 +33,11 @@ export default function TestCockpit() {
     const firstLoad = useRef(true);
     const prevApprovalsLengthRef = useRef(0); // Restored for robust fallback detection
 
+    // Filter State
+    const [tempSystem, setTempSystem] = useState('(All)');
+    const [tempModule, setTempModule] = useState('(All)');
+    const activeFiltersRef = useRef({ system: '(All)', module: '(All)' });
+
     // Derived state for charts
     const systemCounts = approvals.reduce((acc, curr) => {
         acc[curr.sourceSystem] = (acc[curr.sourceSystem] || 0) + 1;
@@ -150,8 +155,13 @@ export default function TestCockpit() {
     async function loadApprovals() {
         setLoading(true);
         try {
-            // CHANGED: Fetch from /api/test instead of /api/approvals
-            const res = await fetch('/api/test', { cache: "no-store" });
+            // CHANGED: Fetch from /api/test with filters
+            const { system, module } = activeFiltersRef.current;
+            const queryParams = new URLSearchParams();
+            if (system !== '(All)') queryParams.append('system', system);
+            if (module !== '(All)') queryParams.append('module', module);
+
+            const res = await fetch(`/api/test?${queryParams.toString()}`, { cache: "no-store" });
             const data = await res.json();
 
             if (Array.isArray(data)) {
@@ -558,14 +568,26 @@ export default function TestCockpit() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div className="w-full">
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-wide">System</label>
-                                <select className="form-select w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2.5">
+                                <select
+                                    value={tempSystem}
+                                    onChange={(e) => setTempSystem(e.target.value)}
+                                    className="form-select w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2.5"
+                                >
                                     <option>(All)</option>
+                                    <option>OBBRN</option>
+                                    <option>FCUBS</option>
                                 </select>
                             </div>
                             <div className="w-full">
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-wide">Module</label>
-                                <select className="form-select w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2.5">
+                                <select
+                                    value={tempModule}
+                                    onChange={(e) => setTempModule(e.target.value)}
+                                    className="form-select w-full bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2.5"
+                                >
                                     <option>(All)</option>
+                                    <option>Cash Deposit</option>
+                                    <option>Customer</option>
                                 </select>
                             </div>
                             <div className="w-full">
@@ -591,7 +613,13 @@ export default function TestCockpit() {
                         {/* Actions Row */}
                         <div className="flex flex-col md:flex-row justify-between items-center gap-4 pt-4 border-t border-gray-100">
                             <div className="flex items-center gap-3 w-full md:w-auto">
-                                <button className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow-sm hover:shadow active:scale-95 uppercase tracking-wide">
+                                <button
+                                    onClick={() => {
+                                        activeFiltersRef.current = { system: tempSystem, module: tempModule };
+                                        loadApprovals();
+                                    }}
+                                    className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow-sm hover:shadow active:scale-95 uppercase tracking-wide"
+                                >
                                     Apply Filter
                                 </button>
                                 <button onClick={loadApprovals} className="p-2.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-gray-200 bg-white">
